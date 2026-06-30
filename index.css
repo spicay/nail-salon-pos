@@ -1,0 +1,157 @@
+:root {
+  /* Color tokens */
+  --ink: #241f29;          /* deep plum-charcoal, primary text & app shell */
+  --ink-soft: #3c3543;
+  --paper: #faf6f1;        /* warm ivory background */
+  --paper-card: #ffffff;
+  --rose: #c4607a;         /* primary accent - dusty rose */
+  --rose-deep: #a8475f;
+  --gold: #b08a4e;         /* secondary accent - muted brass, for highlights/success */
+  --line: #e8e0d8;
+  --muted: #8a8190;
+  --danger: #b3463f;
+  --success: #4f7a5c;
+
+  /* Type */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; }
+
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input, select, textarea {
+  font-family: var(--font-body);
+  font-size: 16px; /* prevents iOS zoom on focus */
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 22px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 15px;
+  transition: transform 0.08s ease, opacity 0.15s ease;
+  min-height: 48px; /* touch target */
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--ink); color: var(--paper); }
+.btn-accent { background: var(--rose); color: white; }
+.btn-accent:active { background: var(--rose-deep); }
+.btn-ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+.btn-danger { background: var(--danger); color: white; }
+.btn:disabled { opacity: 0.4; pointer-events: none; }
+
+.card {
+  background: var(--paper-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  padding: 20px;
+}
+
+.input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--line);
+  background: white;
+  color: var(--ink);
+}
+.input:focus { outline: 2px solid var(--rose); outline-offset: 1px; }
+
+.app-shell {
+  display: flex;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 220px;
+  background: var(--ink);
+  color: var(--paper);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 12px;
+  flex-shrink: 0;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border-radius: 10px;
+  color: #c9c2d1;
+  font-size: 14.5px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.nav-link.active { background: rgba(255,255,255,0.1); color: white; }
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 32px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-booked { background: #eef0fb; color: #4854a8; }
+.badge-confirmed { background: #e6f2ec; color: var(--success); }
+.badge-in_progress { background: #fdf1e0; color: var(--gold); }
+.badge-completed { background: #e9f6ec; color: var(--success); }
+.badge-no_show { background: #fbeaea; color: var(--danger); }
+.badge-cancelled { background: #f1eef1; color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 10px 12px; border-bottom: 1.5px solid var(--line); }
+td { padding: 13px 12px; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
