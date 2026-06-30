@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStaff } from '../lib/StaffContext'
 
 export default function Login() {
-  const { loginWithPin } = useStaff()
+  const { staff, loginWithPin } = useStaff()
+  const navigate = useNavigate()
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (staff) navigate('/', { replace: true })
+  }, [staff])
 
   function press(digit) {
     if (pin.length >= 6) return
