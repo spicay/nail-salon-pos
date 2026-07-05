@@ -1,3 +1,4 @@
+
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useStaff } from '../lib/StaffContext'
 
@@ -6,6 +7,8 @@ const links = [
   { to: '/cashier', label: 'Cashier', icon: '$' },
   { to: '/appointments', label: 'Appointments', icon: '◷' },
   { to: '/customers', label: 'Customers', icon: '◉' },
+  { to: '/membership', label: 'Membership', icon: '★' },
+  { to: '/services', label: 'Services', icon: '✦' },
   { to: '/inventory', label: 'Inventory', icon: '▤' },
   { to: '/reports', label: 'Reports', icon: '▦' },
   { to: '/staff', label: 'Staff', icon: '✦' },
@@ -16,18 +19,15 @@ export default function Layout() {
   const { staff, logout } = useStaff()
   const navigate = useNavigate()
 
-  function handleLogout() {
-    logout()
-    navigate('/login')
-  }
+  function handleLogout() { logout(); navigate('/login') }
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div style={{ padding: '8px 14px 24px' }}>
-          <h2 style={{ color: 'white', fontSize: 19 }}>Salon POS</h2>
+        <div style={{ padding: '8px 14px 20px' }}>
+          <h2 style={{ color: 'white', fontSize: 17 }}>Salon POS</h2>
         </div>
-        <nav style={{ flex: 1 }}>
+        <nav style={{ flex: 1, overflowY: 'auto' }}>
           {links.map(l => (
             <NavLink key={l.to} to={l.to} end={l.to === '/'}
               className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
