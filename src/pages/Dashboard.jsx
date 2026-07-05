@@ -9,8 +9,9 @@ export default function Dashboard() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    const todayStart = new Date(); todayStart.setHours(0,0,0,0)
-    const todayEnd = new Date(); todayEnd.setHours(23,59,59,999)
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
 
     const { data: txns } = await supabase.from('transactions')
       .select('total_amount').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString())
