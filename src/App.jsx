@@ -1,3 +1,4 @@
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useStaff } from './lib/StaffContext'
 import Layout from './components/Layout'
@@ -6,7 +7,9 @@ import Dashboard from './pages/Dashboard'
 import Cashier from './pages/Cashier'
 import Appointments from './pages/Appointments'
 import Customers from './pages/Customers'
+import Membership from './pages/Membership'
 import Inventory from './pages/Inventory'
+import Services from './pages/Services'
 import Reports from './pages/Reports'
 import StaffPage from './pages/Staff'
 import Settings from './pages/Settings'
@@ -28,6 +31,8 @@ export default function App() {
           <Route path="cashier" element={<Cashier />} />
           <Route path="appointments" element={<Appointments />} />
           <Route path="customers" element={<Customers />} />
+          <Route path="membership" element={<Membership />} />
+          <Route path="services" element={<Services />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
           <Route path="staff" element={<StaffPage />} />
