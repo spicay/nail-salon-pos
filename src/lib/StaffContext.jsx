@@ -19,6 +19,11 @@ export function StaffProvider({ children }) {
   }, [])
 
   async function loginWithPin(pin) {
+    // Always ensure a valid anonymous session before querying,
+    // so the RLS policy (auth.role() = 'authenticated') is satisfied.
+    // This also handles cases where site data was cleared.
+    await ensureDeviceSession()
+
     const { data, error } = await supabase
       .from('staff')
       .select('*')
