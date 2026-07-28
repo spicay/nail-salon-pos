@@ -36,21 +36,35 @@ export default function Cashier() {
   }
 
   function addService(svc) {
-    setCart(c => [...c, {
-      id: svc.id, name: svc.name, price: Number(svc.price),
-      technician_id: staffList[0]?.id || ''
-    }])
+    // If same service already in cart (same service id and same technician), just bump qty
+    const existing = cart.findIndex(c => c.id === svc.id)
+    if (existing >= 0) {
+      setCart(c => c.map((item, i) => i === existing ? { ...item, qty: item.qty + 1 } : item))
+    } else {
+      setCart(c => [...c, {
+        id: svc.id, name: svc.name, unitPrice: Number(svc.price),
+        qty: 1, technician_id: staffList[0]?.id || ''
+      }])
+    }
   }
 
-  function updateCartItem(idx, patch) {
-    setCart(c => c.map((item, i) => i === idx ? { ...item, ...patch } : item))
+  function updateQty(idx, delta) {
+    setCart(c => c.map((item, i) => {
+      if (i !== idx) return item
+      const newQty = item.qty + delta
+      return newQty <= 0 ? null : { ...item, qty: newQty }
+    }).filter(Boolean))
+  }
+
+  function updateTechnician(idx, technician_id) {
+    setCart(c => c.map((item, i) => i === idx ? { ...item, technician_id } : item))
   }
 
   function removeCartItem(idx) {
     setCart(c => c.filter((_, i) => i !== idx))
   }
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price, 0)
+  const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const taxAmount = (subtotal - discount) * (taxRate / 100)
   const total = subtotal - discount + taxAmount + Number(tip || 0)
   const amountDueNow = isDeposit ? Number(depositAmount || 0) : total
@@ -75,11 +89,16 @@ export default function Cashier() {
       }).select().single()
       if (txnError) throw txnError
 
-      const serviceRows = cart.map(c => ({
-        transaction_id: txn.id, service_id: c.id,
-        technician_id: c.technician_id || null,
-        price: c.price, tip_amount: 0
-      }))
+      // Expand cart items by qty into individual service rows
+      const serviceRows = cart.flatMap(c =>
+        Array.from({ length: c.qty }, () => ({
+          transaction_id: txn.id,
+          service_id: c.id,
+          technician_id: c.technician_id || null,
+          price: c.unitPrice,
+          tip_amount: 0
+        }))
+      )
       const { error } = await supabase.from('transaction_services').insert(serviceRows)
       if (error) throw error
 
@@ -109,7 +128,9 @@ export default function Cashier() {
   return (
     <div>
       <div className="page-header"><h1>Cashier</h1></div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: 20, alignItems: 'start' }}>
+
+        {/* Left: service picker */}
         <div className="card">
           {Object.entries(grouped).map(([cat, list]) => (
             <div key={cat} style={{ marginBottom: 18 }}>
@@ -129,6 +150,7 @@ export default function Cashier() {
           )}
         </div>
 
+        {/* Right: cart / checkout */}
         <div className="card" style={{ position: 'sticky', top: 0 }}>
           <h3 style={{ marginBottom: 14 }}>Current Order</h3>
           <select className="input" value={customerId} onChange={e => setCustomerId(e.target.value)} style={{ marginBottom: 12 }}>
@@ -137,23 +159,50 @@ export default function Cashier() {
           </select>
 
           {cart.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 14 }}>No items yet. Tap a service to add it.</p>}
+
           {cart.map((item, idx) => (
-            <div key={idx} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--line)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div key={idx} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--line)' }}>
+              {/* Service name + remove */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</span>
-                <button onClick={() => removeCartItem(idx)} style={{ color: 'var(--danger)', fontSize: 13 }}>Remove</button>
+                <button onClick={() => removeCartItem(idx)} style={{ color: 'var(--danger)', fontSize: 12, marginLeft: 8 }}>Remove</button>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                <select value={item.technician_id} onChange={e => updateCartItem(idx, { technician_id: e.target.value })}
-                  className="input" style={{ fontSize: 13, padding: '8px 10px', width: 160 }}>
-                  {staffList.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                </select>
-                <span style={{ fontWeight: 600 }}>Rp {item.price.toLocaleString('id-ID')}</span>
+
+              {/* Qty controls + unit price */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <button
+                  onClick={() => updateQty(idx, -1)}
+                  style={{ width: 30, height: 30, borderRadius: 6, border: '1.5px solid var(--line)', background: 'white', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  −
+                </button>
+                <span style={{ fontWeight: 700, fontSize: 15, minWidth: 24, textAlign: 'center' }}>{item.qty}</span>
+                <button
+                  onClick={() => updateQty(idx, 1)}
+                  style={{ width: 30, height: 30, borderRadius: 6, border: '1.5px solid var(--line)', background: 'white', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  +
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 4 }}>
+                  × Rp {item.unitPrice.toLocaleString('id-ID')}
+                </span>
+                <span style={{ fontWeight: 700, marginLeft: 'auto' }}>
+                  Rp {(item.unitPrice * item.qty).toLocaleString('id-ID')}
+                </span>
               </div>
+
+              {/* Technician selector */}
+              <select
+                value={item.technician_id}
+                onChange={e => updateTechnician(idx, e.target.value)}
+                className="input"
+                style={{ fontSize: 13, padding: '7px 10px' }}>
+                <option value="">No technician</option>
+                {staffList.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              </select>
             </div>
           ))}
 
-          <div style={{ marginTop: 16 }}>
+          {/* Discount, tip, payment */}
+          <div style={{ marginTop: 8 }}>
             <label style={{ fontSize: 13, color: 'var(--muted)' }}>Discount (Rp)</label>
             <input type="number" className="input" value={discount} onChange={e => setDiscount(Number(e.target.value) || 0)} style={{ marginBottom: 10, marginTop: 4 }} />
             <label style={{ fontSize: 13, color: 'var(--muted)' }}>Tip (Rp)</label>
@@ -168,6 +217,7 @@ export default function Cashier() {
             </select>
           </div>
 
+          {/* Down payment */}
           <div style={{ marginTop: 14, padding: 12, background: '#f7f3ee', borderRadius: 9 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
               <input type="checkbox" checked={isDeposit} onChange={e => setIsDeposit(e.target.checked)} />
@@ -181,6 +231,7 @@ export default function Cashier() {
             )}
           </div>
 
+          {/* Totals */}
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1.5px solid var(--ink)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}>
               <span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span>
@@ -220,94 +271,133 @@ export default function Cashier() {
 }
 
 function ReceiptModal({ receipt, settings, onClose }) {
-  const subtotal = receipt.items.reduce((s, i) => s + i.price, 0)
+  const subtotal = receipt.items.reduce((s, i) => s + i.unitPrice * i.qty, 0)
+  const [screenshotMode, setScreenshotMode] = useState(false)
+  const RECEIPT_WIDTH = 210
 
-  function buildText() {
+  function buildWhatsAppText() {
     const L = []
-    L.push(settings?.business_name || 'Nail Salon')
+    L.push('*' + (settings?.business_name || 'Nail Salon') + '*')
     if (settings?.address) L.push(settings.address)
     if (settings?.phone) L.push(settings.phone)
-    L.push(''); L.push('Receipt: ' + receipt.id.slice(0,8).toUpperCase())
-    L.push('Date: ' + format(receipt.createdAt, 'MMM d, yyyy h:mm a'))
-    L.push('Customer: ' + receipt.customerName)
-    L.push('Served by: ' + receipt.cashierName); L.push('')
-    receipt.items.forEach(i => L.push(i.name + ' — Rp ' + i.price.toLocaleString('id-ID')))
+    L.push('')
+    L.push('No: ' + receipt.id.slice(0,8).toUpperCase())
+    L.push('Tgl: ' + format(receipt.createdAt, 'dd/MM/yyyy HH:mm'))
+    L.push('Pelanggan: ' + receipt.customerName)
+    L.push('')
+    receipt.items.forEach(i => {
+      if (i.qty > 1) {
+        L.push(i.name)
+        L.push('  ' + i.qty + ' x Rp ' + i.unitPrice.toLocaleString('id-ID') + ' = Rp ' + (i.unitPrice * i.qty).toLocaleString('id-ID'))
+      } else {
+        L.push(i.name + '   Rp ' + i.unitPrice.toLocaleString('id-ID'))
+      }
+    })
     L.push('')
     L.push('Subtotal: Rp ' + subtotal.toLocaleString('id-ID'))
-    if (receipt.discount_amount > 0) L.push('Discount: -Rp ' + Number(receipt.discount_amount).toLocaleString('id-ID'))
-    if (receipt.tax_amount > 0) L.push('Tax: Rp ' + Number(receipt.tax_amount).toLocaleString('id-ID'))
+    if (receipt.discount_amount > 0) L.push('Diskon: -Rp ' + Number(receipt.discount_amount).toLocaleString('id-ID'))
+    if (receipt.tax_amount > 0) L.push('Pajak: Rp ' + Number(receipt.tax_amount).toLocaleString('id-ID'))
     if (receipt.tip_amount > 0) L.push('Tip: Rp ' + Number(receipt.tip_amount).toLocaleString('id-ID'))
-    L.push('Total: Rp ' + Number(receipt.total_amount).toLocaleString('id-ID'))
+    L.push('*TOTAL: Rp ' + Number(receipt.total_amount).toLocaleString('id-ID') + '*')
     if (receipt.is_deposit) {
-      L.push(''); L.push('DP Received: Rp ' + Number(receipt.deposit_amount).toLocaleString('id-ID'))
-      L.push('Balance Remaining: Rp ' + Number(receipt.balance_due).toLocaleString('id-ID'))
+      L.push(''); L.push('*DP Diterima: Rp ' + Number(receipt.deposit_amount).toLocaleString('id-ID') + '*')
+      L.push('Sisa: Rp ' + Number(receipt.balance_due).toLocaleString('id-ID'))
     }
-    L.push(''); L.push('Payment: ' + receipt.payment_method.toUpperCase())
+    L.push(''); L.push('Bayar: ' + receipt.payment_method.toUpperCase())
     if (settings?.receipt_footer) { L.push(''); L.push(settings.receipt_footer) }
     return L.join('\n')
   }
 
-  function handlePrint() {
-    const content = document.getElementById('receipt-area').innerHTML
-    const w = window.open('', '', 'width=400,height=700')
-    w.document.write('<html><head><title>Receipt</title><style>body{font-family:monospace;font-size:13px;padding:24px;color:#222}h2{text-align:center;font-size:16px}.row{display:flex;justify-content:space-between;margin-bottom:4px}.divider{border-top:1px dashed #999;margin:10px 0}.center{text-align:center}</style></head><body>' + content + '</body></html>')
-    w.document.close(); w.focus(); w.print(); w.close()
-  }
-
   function handleWhatsApp() {
-    const text = encodeURIComponent(buildText())
+    const text = encodeURIComponent(buildWhatsAppText())
     const phone = receipt.customerPhone ? receipt.customerPhone.replace(/\D/g,'') : ''
     window.open(phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`, '_blank')
   }
 
   function handleEmail() {
-    const sub = encodeURIComponent('Receipt from ' + (settings?.business_name || 'Nail Salon'))
-    const body = encodeURIComponent(buildText())
+    const sub = encodeURIComponent('Nota dari ' + (settings?.business_name || 'Nail Salon'))
+    const body = encodeURIComponent(buildWhatsAppText().replace(/\*/g, ''))
     window.open(`mailto:?subject=${sub}&body=${body}`, '_blank')
   }
 
-  return (
-    <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100 }}>
-      <div style={{ width:380,maxHeight:'90vh',display:'flex',flexDirection:'column',gap:12 }}>
-        <div id="receipt-area" style={{ background:'white',borderRadius:12,padding:28,overflowY:'auto',fontSize:13,color:'#222',fontFamily:'monospace' }}>
-          <div className="center" style={{ textAlign:'center',marginBottom:12 }}>
-            <div style={{ fontFamily:'serif',fontSize:18,fontWeight:700 }}>{settings?.business_name || 'Nail Salon'}</div>
-            {settings?.address && <div>{settings.address}</div>}
-            {settings?.phone && <div>{settings.phone}</div>}
-            {settings?.instagram_handle && <div>@{settings.instagram_handle}</div>}
+  const receiptContent = (
+    <div style={{ width: RECEIPT_WIDTH, fontFamily:"'Courier New', Courier, monospace", fontSize:11, color:'#111', background:'white', padding:'8px 4px', lineHeight:1.5 }}>
+      <div style={{ textAlign:'center', marginBottom:6 }}>
+        <div style={{ fontWeight:700, fontSize:14 }}>{settings?.business_name || 'Nail Salon'}</div>
+        {settings?.address && <div style={{ fontSize:10 }}>{settings.address}</div>}
+        {settings?.phone && <div style={{ fontSize:10 }}>{settings.phone}</div>}
+        {settings?.instagram_handle && <div style={{ fontSize:10 }}>@{settings.instagram_handle}</div>}
+        {settings?.receipt_header && <div style={{ fontSize:10, marginTop:3 }}>{settings.receipt_header}</div>}
+      </div>
+      <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
+      <div style={{ fontSize:10, marginBottom:4 }}>
+        <div>No : {receipt.id.slice(0,8).toUpperCase()}</div>
+        <div>Tgl: {format(receipt.createdAt, 'dd/MM/yy HH:mm')}</div>
+        <div>Cst: {receipt.customerName}</div>
+        <div>Kas: {receipt.cashierName}</div>
+      </div>
+      <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
+      {receipt.items.map((item, idx) => (
+        <div key={idx} style={{ marginBottom:4 }}>
+          <div style={{ fontWeight:600, fontSize:11 }}>{item.name}</div>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
+            <span style={{ color:'#555' }}>{item.qty} x Rp {item.unitPrice.toLocaleString('id-ID')}</span>
+            <span>Rp {(item.unitPrice * item.qty).toLocaleString('id-ID')}</span>
           </div>
-          <div style={{ borderTop:'1px dashed #999',borderBottom:'1px dashed #999',padding:'8px 0',marginBottom:10 }}>
-            <div>Receipt: {receipt.id.slice(0,8).toUpperCase()}</div>
-            <div>Date: {format(receipt.createdAt,'MMM d, yyyy h:mm a')}</div>
-            <div>Customer: {receipt.customerName}</div>
-            <div>Cashier: {receipt.cashierName}</div>
-          </div>
-          {receipt.items.map((i,idx) => (
-            <div key={idx} style={{ display:'flex',justifyContent:'space-between',marginBottom:4 }}>
-              <span>{i.name}</span><span>Rp {i.price.toLocaleString('id-ID')}</span>
-            </div>
-          ))}
-          <div style={{ borderTop:'1px dashed #999',marginTop:8,paddingTop:8 }}>
-            <div style={{ display:'flex',justifyContent:'space-between' }}><span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span></div>
-            {receipt.discount_amount > 0 && <div style={{ display:'flex',justifyContent:'space-between' }}><span>Discount</span><span>-Rp {Number(receipt.discount_amount).toLocaleString('id-ID')}</span></div>}
-            {receipt.tax_amount > 0 && <div style={{ display:'flex',justifyContent:'space-between' }}><span>Tax</span><span>Rp {Number(receipt.tax_amount).toLocaleString('id-ID')}</span></div>}
-            {receipt.tip_amount > 0 && <div style={{ display:'flex',justifyContent:'space-between' }}><span>Tip</span><span>Rp {Number(receipt.tip_amount).toLocaleString('id-ID')}</span></div>}
-            <div style={{ display:'flex',justifyContent:'space-between',fontWeight:700,marginTop:4 }}><span>TOTAL</span><span>Rp {Number(receipt.total_amount).toLocaleString('id-ID')}</span></div>
-          </div>
-          {receipt.is_deposit && (
-            <div style={{ borderTop:'1px dashed #999',marginTop:8,paddingTop:8 }}>
-              <div style={{ display:'flex',justifyContent:'space-between',fontWeight:700 }}><span>DP Received</span><span>Rp {Number(receipt.deposit_amount).toLocaleString('id-ID')}</span></div>
-              <div style={{ display:'flex',justifyContent:'space-between' }}><span>Balance Due</span><span>Rp {Number(receipt.balance_due).toLocaleString('id-ID')}</span></div>
-            </div>
-          )}
-          <div style={{ marginTop:10,textAlign:'center' }}>Payment: {receipt.payment_method.toUpperCase()}</div>
-          {settings?.receipt_footer && <div style={{ marginTop:14,textAlign:'center',fontSize:12,borderTop:'1px dashed #999',paddingTop:10 }}>{settings.receipt_footer}</div>}
         </div>
-        <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
-          <button className="btn btn-accent" style={{ flex:1 }} onClick={handlePrint}>🖨 Print</button>
-          <button className="btn btn-ghost" style={{ flex:1,background:'#25d366',color:'white',border:'none' }} onClick={handleWhatsApp}>WhatsApp</button>
-          <button className="btn btn-ghost" style={{ flex:1,background:'white' }} onClick={handleEmail}>Email</button>
-          <button className="btn btn-ghost" style={{ width:'100%',background:'white' }} onClick={onClose}>Close</button>
+      ))}
+      <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
+      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span></div>
+      {receipt.discount_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Diskon</span><span>-Rp {Number(receipt.discount_amount).toLocaleString('id-ID')}</span></div>}
+      {receipt.tax_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Pajak</span><span>Rp {Number(receipt.tax_amount).toLocaleString('id-ID')}</span></div>}
+      {receipt.tip_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Tip</span><span>Rp {Number(receipt.tip_amount).toLocaleString('id-ID')}</span></div>}
+      <div style={{ display:'flex', justifyContent:'space-between', fontWeight:700, fontSize:13, marginTop:3, paddingTop:3, borderTop:'1px solid #000' }}>
+        <span>TOTAL</span><span>Rp {Number(receipt.total_amount).toLocaleString('id-ID')}</span>
+      </div>
+      {receipt.is_deposit && <>
+        <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
+        <div style={{ display:'flex', justifyContent:'space-between', fontWeight:700, fontSize:11, marginBottom:2 }}><span>DP Diterima</span><span>Rp {Number(receipt.deposit_amount).toLocaleString('id-ID')}</span></div>
+        <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}><span>Sisa Bayar</span><span>Rp {Number(receipt.balance_due).toLocaleString('id-ID')}</span></div>
+        {settings?.bank_account_info && <div style={{ fontSize:9, marginTop:3, color:'#444' }}>{settings.bank_account_info}</div>}
+      </>}
+      <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
+      <div style={{ textAlign:'center', fontSize:10 }}>
+        <div>Bayar: {receipt.payment_method.toUpperCase()}</div>
+        {settings?.receipt_footer && <div style={{ marginTop:3 }}>{settings.receipt_footer}</div>}
+        <div style={{ marginTop:4, fontWeight:600 }}>*** Terima Kasih ***</div>
+      </div>
+    </div>
+  )
+
+  if (screenshotMode) {
+    return (
+      <div style={{ position:'fixed', inset:0, background:'white', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', zIndex:200 }}
+        onClick={() => setScreenshotMode(false)}>
+        <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>Screenshot now, then tap anywhere to go back</div>
+        {receiptContent}
+        <div style={{ fontSize:11, color:'#aaa', marginTop:12 }}>Tap to close screenshot mode</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:10, alignItems:'center' }}>
+        <div style={{ background:'white', borderRadius:8, padding:6, boxShadow:'0 4px 24px rgba(0,0,0,0.3)' }}>
+          {receiptContent}
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width: RECEIPT_WIDTH + 12 }}>
+          <button style={{ background:'#111', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'12px 8px', cursor:'pointer' }} onClick={() => setScreenshotMode(true)}>
+            📸 Screenshot to Print
+          </button>
+          <button style={{ background:'#25d366', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'12px 8px', cursor:'pointer' }} onClick={handleWhatsApp}>
+            WhatsApp
+          </button>
+          <button className="btn btn-ghost" style={{ background:'white', fontSize:13 }} onClick={handleEmail}>Email</button>
+          <button className="btn btn-ghost" style={{ background:'white', fontSize:13 }} onClick={onClose}>Close</button>
+        </div>
+        <div style={{ fontSize:11, color:'#ddd', textAlign:'center', maxWidth: RECEIPT_WIDTH + 12 }}>
+          For Woya WP583: Screenshot → open POS-PrinterV1.0 app → print via Bluetooth
         </div>
       </div>
     </div>
