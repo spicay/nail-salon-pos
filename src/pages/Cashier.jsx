@@ -299,7 +299,48 @@ function ReceiptModal({ receipt, settings, onClose }) {
     setSharing(false)
   }
 
-  // WhatsApp with text only (quick fallback)
+  // Convert Indonesian phone to WhatsApp international format: 08xx→628xx
+  function toWaPhone(raw) {
+    if (!raw) return ''
+    const digits = raw.replace(/\D/g, '')
+    if (digits.startsWith('62')) return digits
+    if (digits.startsWith('0')) return '62' + digits.slice(1)
+    return digits
+  }
+
+  // Share receipt image to WhatsApp customer chat
+  async function handleWhatsAppImage() {
+    setSharing(true)
+    try {
+      const blob = await captureReceiptImage()
+      const filename = `nota-${String(receipt.order_number || '').padStart(7,'0')}.png`
+      const file = new File([blob], filename, { type: 'image/png' })
+      const waPhone = toWaPhone(receipt.customerPhone)
+      const waUrl = waPhone ? `https://wa.me/${waPhone}` : `https://wa.me/`
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        // iPad/iOS: opens native share sheet — pick WhatsApp, Mail, Save etc.
+        await navigator.share({
+          files: [file],
+          title: `Nota ${settings?.business_name || 'Nail Salon'}`,
+          text: `Nota ${String(receipt.order_number || '').padStart(7,'0')} untuk ${receipt.customerName}`,
+        })
+      } else {
+        // Desktop fallback: save image then open WhatsApp chat
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = filename; a.click()
+        URL.revokeObjectURL(url)
+        setTimeout(() => window.open(waUrl, '_blank'), 800)
+        alert('Gambar nota tersimpan ke Downloads.\nWhatsApp akan terbuka — lampirkan gambarnya.')
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') alert('Could not share: ' + e.message)
+    }
+    setSharing(false)
+  }
+
+  // WhatsApp text only (quick fallback)
   function buildText() {
     const L = []
     L.push('*' + (settings?.business_name || 'Nail Salon') + '*')
@@ -399,31 +440,29 @@ function ReceiptModal({ receipt, settings, onClose }) {
           {receiptEl}
         </div>
 
-        {/* Primary action: Share as image (opens iOS share sheet → WhatsApp, Email, Save, Print) */}
-        <button
-          onClick={handleShareImage}
-          disabled={sharing}
-          style={{
-            width: RECEIPT_WIDTH + 16,
-            padding: '14px',
-            background: 'var(--rose)',
-            color: 'white',
-            border: 'none',
-            borderRadius: 10,
-            fontWeight: 700,
-            fontSize: 15,
-            cursor: 'pointer',
-            opacity: sharing ? 0.7 : 1,
-          }}>
-          {sharing ? 'Preparing...' : '📤 Share Receipt Image'}
-        </button>
-
-        <div style={{ fontSize: 11, color: '#ddd', textAlign: 'center', width: RECEIPT_WIDTH + 16 }}>
-          Tap to share via WhatsApp, Email, or save to Photos
-        </div>
-
-        {/* Secondary actions */}
+        {/* Action buttons */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width: RECEIPT_WIDTH + 16 }}>
+          {/* WhatsApp image — main sharing action */}
+          <button
+            onClick={handleWhatsAppImage}
+            disabled={sharing}
+            style={{ background:'#25d366', color:'white', border:'none', borderRadius:9, fontWeight:700, fontSize:13, padding:'13px 8px', cursor:'pointer', opacity: sharing ? 0.7 : 1, gridColumn:'1/-1' }}>
+            {sharing ? 'Menyiapkan...' : '📲 Kirim ke WhatsApp'}
+          </button>
+          {receipt.customerPhone
+            ? <div style={{ gridColumn:'1/-1', fontSize:11, color:'#adf', textAlign:'center', marginTop:-4 }}>
+                → {receipt.customerName} ({receipt.customerPhone})
+              </div>
+            : <div style={{ gridColumn:'1/-1', fontSize:11, color:'#ffd', textAlign:'center', marginTop:-4 }}>
+                Walk-in — no customer phone saved
+              </div>
+          }
+          <button
+            onClick={handleShareImage}
+            disabled={sharing}
+            style={{ background:'var(--rose)', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'11px 8px', cursor:'pointer' }}>
+            📤 Share Image
+          </button>
           <button
             onClick={handleSaveImage}
             disabled={sharing}
@@ -432,7 +471,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
           </button>
           <button
             onClick={handleWhatsAppText}
-            style={{ background:'#25d366', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'11px 8px', cursor:'pointer' }}>
+            style={{ background:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'11px 8px', cursor:'pointer', gridColumn:'1/-1' }}>
             💬 WA Text Only
           </button>
         </div>
