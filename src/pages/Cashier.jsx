@@ -101,7 +101,7 @@ export default function Cashier() {
       if (error) throw error
 
       const customer = customers.find(c => c.id === customerId)
-      setReceipt({
+      setReceipt({order_number: txn.order_number,
         ...txn,
         items: cart,
         customerName: customer?.full_name || 'Walk-in',
@@ -259,7 +259,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
     setSharing(true)
     try {
       const blob = await captureReceiptImage()
-      const file = new File([blob], `receipt-${receipt.id.slice(0,8)}.png`, { type: 'image/png' })
+      const file = new File([blob], `receipt-${String(receipt.order_number || '').padStart(7,'0')}.png`, { type: 'image/png' })
 
       if (navigator.share && navigator.canShare({ files: [file] })) {
         await navigator.share({
@@ -272,7 +272,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `receipt-${receipt.id.slice(0,8)}.png`
+        a.download = `receipt-${String(receipt.order_number || '').padStart(7,'0')}.png`
         a.click()
         URL.revokeObjectURL(url)
       }
@@ -290,7 +290,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `receipt-${receipt.id.slice(0,8)}.png`
+      a.download = `receipt-${String(receipt.order_number || '').padStart(7,'0')}.png`
       a.click()
       URL.revokeObjectURL(url)
     } catch(e) {
@@ -305,7 +305,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
     L.push('*' + (settings?.business_name || 'Nail Salon') + '*')
     if (settings?.address) L.push(settings.address)
     if (settings?.phone) L.push(settings.phone)
-    L.push(''); L.push('No: ' + receipt.id.slice(0,8).toUpperCase())
+    L.push(''); L.push('No: ' + String(receipt.order_number || receipt.id.slice(0,8)).padStart(7, '0'))
     L.push('Tgl: ' + format(receipt.createdAt, 'dd/MM/yyyy HH:mm'))
     L.push('Pelanggan: ' + receipt.customerName); L.push('')
     receipt.items.forEach(i => {
@@ -352,7 +352,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
       </div>
       <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
       <div style={{ fontSize:10, marginBottom:4 }}>
-        <div>No : {receipt.id.slice(0,8).toUpperCase()}</div>
+        <div>No : {String(receipt.order_number || receipt.id.slice(0,8)).padStart(7, '0')}</div>
         <div>Tgl: {format(receipt.createdAt, 'dd/MM/yy HH:mm')}</div>
         <div>Cst: {receipt.customerName}</div>
         <div>Kas: {receipt.cashierName}</div>
