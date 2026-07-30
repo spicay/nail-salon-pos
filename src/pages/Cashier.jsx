@@ -36,7 +36,6 @@ export default function Cashier() {
   }
 
   function addService(svc) {
-    // If same service already in cart (same service id and same technician), just bump qty
     const existing = cart.findIndex(c => c.id === svc.id)
     if (existing >= 0) {
       setCart(c => c.map((item, i) => i === existing ? { ...item, qty: item.qty + 1 } : item))
@@ -89,7 +88,6 @@ export default function Cashier() {
       }).select().single()
       if (txnError) throw txnError
 
-      // Expand cart items by qty into individual service rows
       const serviceRows = cart.flatMap(c =>
         Array.from({ length: c.qty }, () => ({
           transaction_id: txn.id,
@@ -129,8 +127,6 @@ export default function Cashier() {
     <div>
       <div className="page-header"><h1>Cashier</h1></div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: 20, alignItems: 'start' }}>
-
-        {/* Left: service picker */}
         <div className="card">
           {Object.entries(grouped).map(([cat, list]) => (
             <div key={cat} style={{ marginBottom: 18 }}>
@@ -145,12 +141,9 @@ export default function Cashier() {
               </div>
             </div>
           ))}
-          {services.length === 0 && (
-            <p style={{ color: 'var(--muted)' }}>No services yet. Add them under <strong>Services</strong> in the sidebar.</p>
-          )}
+          {services.length === 0 && <p style={{ color: 'var(--muted)' }}>No services yet. Add them under <strong>Services</strong> in the sidebar.</p>}
         </div>
 
-        {/* Right: cart / checkout */}
         <div className="card" style={{ position: 'sticky', top: 0 }}>
           <h3 style={{ marginBottom: 14 }}>Current Order</h3>
           <select className="input" value={customerId} onChange={e => setCustomerId(e.target.value)} style={{ marginBottom: 12 }}>
@@ -162,46 +155,24 @@ export default function Cashier() {
 
           {cart.map((item, idx) => (
             <div key={idx} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--line)' }}>
-              {/* Service name + remove */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</span>
                 <button onClick={() => removeCartItem(idx)} style={{ color: 'var(--danger)', fontSize: 12, marginLeft: 8 }}>Remove</button>
               </div>
-
-              {/* Qty controls + unit price */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <button
-                  onClick={() => updateQty(idx, -1)}
-                  style={{ width: 30, height: 30, borderRadius: 6, border: '1.5px solid var(--line)', background: 'white', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  −
-                </button>
+                <button onClick={() => updateQty(idx, -1)} style={{ width: 30, height: 30, borderRadius: 6, border: '1.5px solid var(--line)', background: 'white', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
                 <span style={{ fontWeight: 700, fontSize: 15, minWidth: 24, textAlign: 'center' }}>{item.qty}</span>
-                <button
-                  onClick={() => updateQty(idx, 1)}
-                  style={{ width: 30, height: 30, borderRadius: 6, border: '1.5px solid var(--line)', background: 'white', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  +
-                </button>
-                <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 4 }}>
-                  × Rp {item.unitPrice.toLocaleString('id-ID')}
-                </span>
-                <span style={{ fontWeight: 700, marginLeft: 'auto' }}>
-                  Rp {(item.unitPrice * item.qty).toLocaleString('id-ID')}
-                </span>
+                <button onClick={() => updateQty(idx, 1)} style={{ width: 30, height: 30, borderRadius: 6, border: '1.5px solid var(--line)', background: 'white', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 4 }}>× Rp {item.unitPrice.toLocaleString('id-ID')}</span>
+                <span style={{ fontWeight: 700, marginLeft: 'auto' }}>Rp {(item.unitPrice * item.qty).toLocaleString('id-ID')}</span>
               </div>
-
-              {/* Technician selector */}
-              <select
-                value={item.technician_id}
-                onChange={e => updateTechnician(idx, e.target.value)}
-                className="input"
-                style={{ fontSize: 13, padding: '7px 10px' }}>
+              <select value={item.technician_id} onChange={e => updateTechnician(idx, e.target.value)} className="input" style={{ fontSize: 13, padding: '7px 10px' }}>
                 <option value="">No technician</option>
                 {staffList.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
               </select>
             </div>
           ))}
 
-          {/* Discount, tip, payment */}
           <div style={{ marginTop: 8 }}>
             <label style={{ fontSize: 13, color: 'var(--muted)' }}>Discount (Rp)</label>
             <input type="number" className="input" value={discount} onChange={e => setDiscount(Number(e.target.value) || 0)} style={{ marginBottom: 10, marginTop: 4 }} />
@@ -217,7 +188,6 @@ export default function Cashier() {
             </select>
           </div>
 
-          {/* Down payment */}
           <div style={{ marginTop: 14, padding: 12, background: '#f7f3ee', borderRadius: 9 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
               <input type="checkbox" checked={isDeposit} onChange={e => setIsDeposit(e.target.checked)} />
@@ -231,35 +201,19 @@ export default function Cashier() {
             )}
           </div>
 
-          {/* Totals */}
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1.5px solid var(--ink)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}>
-              <span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span>
-            </div>
-            {discount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}>
-              <span>Discount</span><span style={{ color: 'var(--success)' }}>-Rp {discount.toLocaleString('id-ID')}</span>
-            </div>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}>
-              <span>Tax ({taxRate}%)</span><span>Rp {taxAmount.toLocaleString('id-ID')}</span>
-            </div>
-            {tip > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}>
-              <span>Tip</span><span>Rp {Number(tip).toLocaleString('id-ID')}</span>
-            </div>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700, marginTop: 8 }}>
-              <span>Total</span><span>Rp {total.toLocaleString('id-ID')}</span>
-            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span></div>
+            {discount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Discount</span><span style={{ color: 'var(--success)' }}>-Rp {discount.toLocaleString('id-ID')}</span></div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Tax ({taxRate}%)</span><span>Rp {taxAmount.toLocaleString('id-ID')}</span></div>
+            {tip > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Tip</span><span>Rp {Number(tip).toLocaleString('id-ID')}</span></div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700, marginTop: 8 }}><span>Total</span><span>Rp {total.toLocaleString('id-ID')}</span></div>
             {isDeposit && <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 8, color: 'var(--success)', fontWeight: 600 }}>
-                <span>DP Due Now</span><span>Rp {amountDueNow.toLocaleString('id-ID')}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--muted)' }}>
-                <span>Balance Remaining</span><span>Rp {balanceRemaining.toLocaleString('id-ID')}</span>
-              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 8, color: 'var(--success)', fontWeight: 600 }}><span>DP Due Now</span><span>Rp {amountDueNow.toLocaleString('id-ID')}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--muted)' }}><span>Balance Remaining</span><span>Rp {balanceRemaining.toLocaleString('id-ID')}</span></div>
             </>}
           </div>
 
-          <button className="btn btn-accent" style={{ width: '100%', marginTop: 16 }}
-            disabled={cart.length === 0 || saving} onClick={checkout}>
+          <button className="btn btn-accent" style={{ width: '100%', marginTop: 16 }} disabled={cart.length === 0 || saving} onClick={checkout}>
             {saving ? 'Processing...' : isDeposit ? 'Record Down Payment' : 'Complete Sale'}
           </button>
         </div>
@@ -270,28 +224,93 @@ export default function Cashier() {
   )
 }
 
+// Loads html2canvas from CDN once, caches on window
+function loadHtml2Canvas() {
+  return new Promise((resolve, reject) => {
+    if (window.html2canvas) { resolve(window.html2canvas); return }
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'
+    script.onload = () => resolve(window.html2canvas)
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
 function ReceiptModal({ receipt, settings, onClose }) {
   const subtotal = receipt.items.reduce((s, i) => s + i.unitPrice * i.qty, 0)
-  const [screenshotMode, setScreenshotMode] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const RECEIPT_WIDTH = 210
 
-  function buildWhatsAppText() {
+  // Capture the receipt div as a PNG blob
+  async function captureReceiptImage() {
+    const html2canvas = await loadHtml2Canvas()
+    const el = document.getElementById('thermal-receipt')
+    const canvas = await html2canvas(el, {
+      scale: 3,           // 3x for crisp thermal-print quality
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+    })
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+  }
+
+  // Share receipt image via iOS share sheet (WhatsApp, Email, Save, etc.)
+  async function handleShareImage() {
+    setSharing(true)
+    try {
+      const blob = await captureReceiptImage()
+      const file = new File([blob], `receipt-${receipt.id.slice(0,8)}.png`, { type: 'image/png' })
+
+      if (navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Nota ${settings?.business_name || 'Nail Salon'}`,
+          text: `Nota untuk ${receipt.customerName}`,
+        })
+      } else {
+        // Fallback for non-iOS: download the image
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `receipt-${receipt.id.slice(0,8)}.png`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') alert('Could not share: ' + e.message)
+    }
+    setSharing(false)
+  }
+
+  // Save to camera roll / downloads
+  async function handleSaveImage() {
+    setSharing(true)
+    try {
+      const blob = await captureReceiptImage()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `receipt-${receipt.id.slice(0,8)}.png`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch(e) {
+      alert('Could not save image: ' + e.message)
+    }
+    setSharing(false)
+  }
+
+  // WhatsApp with text only (quick fallback)
+  function buildText() {
     const L = []
     L.push('*' + (settings?.business_name || 'Nail Salon') + '*')
     if (settings?.address) L.push(settings.address)
     if (settings?.phone) L.push(settings.phone)
-    L.push('')
-    L.push('No: ' + receipt.id.slice(0,8).toUpperCase())
+    L.push(''); L.push('No: ' + receipt.id.slice(0,8).toUpperCase())
     L.push('Tgl: ' + format(receipt.createdAt, 'dd/MM/yyyy HH:mm'))
-    L.push('Pelanggan: ' + receipt.customerName)
-    L.push('')
+    L.push('Pelanggan: ' + receipt.customerName); L.push('')
     receipt.items.forEach(i => {
-      if (i.qty > 1) {
-        L.push(i.name)
-        L.push('  ' + i.qty + ' x Rp ' + i.unitPrice.toLocaleString('id-ID') + ' = Rp ' + (i.unitPrice * i.qty).toLocaleString('id-ID'))
-      } else {
-        L.push(i.name + '   Rp ' + i.unitPrice.toLocaleString('id-ID'))
-      }
+      L.push(i.name)
+      L.push('  ' + i.qty + ' x Rp ' + i.unitPrice.toLocaleString('id-ID') + ' = Rp ' + (i.unitPrice * i.qty).toLocaleString('id-ID'))
     })
     L.push('')
     L.push('Subtotal: Rp ' + subtotal.toLocaleString('id-ID'))
@@ -308,20 +327,22 @@ function ReceiptModal({ receipt, settings, onClose }) {
     return L.join('\n')
   }
 
-  function handleWhatsApp() {
-    const text = encodeURIComponent(buildWhatsAppText())
+  function handleWhatsAppText() {
+    const text = encodeURIComponent(buildText())
     const phone = receipt.customerPhone ? receipt.customerPhone.replace(/\D/g,'') : ''
     window.open(phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`, '_blank')
   }
 
-  function handleEmail() {
-    const sub = encodeURIComponent('Nota dari ' + (settings?.business_name || 'Nail Salon'))
-    const body = encodeURIComponent(buildWhatsAppText().replace(/\*/g, ''))
-    window.open(`mailto:?subject=${sub}&body=${body}`, '_blank')
-  }
-
-  const receiptContent = (
-    <div style={{ width: RECEIPT_WIDTH, fontFamily:"'Courier New', Courier, monospace", fontSize:11, color:'#111', background:'white', padding:'8px 4px', lineHeight:1.5 }}>
+  const receiptEl = (
+    <div id="thermal-receipt" style={{
+      width: RECEIPT_WIDTH,
+      fontFamily: "'Courier New', Courier, monospace",
+      fontSize: 11,
+      color: '#111',
+      background: 'white',
+      padding: '10px 6px',
+      lineHeight: 1.55,
+    }}>
       <div style={{ textAlign:'center', marginBottom:6 }}>
         <div style={{ fontWeight:700, fontSize:14 }}>{settings?.business_name || 'Nail Salon'}</div>
         {settings?.address && <div style={{ fontSize:10 }}>{settings.address}</div>}
@@ -338,7 +359,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
       </div>
       <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
       {receipt.items.map((item, idx) => (
-        <div key={idx} style={{ marginBottom:4 }}>
+        <div key={idx} style={{ marginBottom:5 }}>
           <div style={{ fontWeight:600, fontSize:11 }}>{item.name}</div>
           <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
             <span style={{ color:'#555' }}>{item.qty} x Rp {item.unitPrice.toLocaleString('id-ID')}</span>
@@ -351,7 +372,7 @@ function ReceiptModal({ receipt, settings, onClose }) {
       {receipt.discount_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Diskon</span><span>-Rp {Number(receipt.discount_amount).toLocaleString('id-ID')}</span></div>}
       {receipt.tax_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Pajak</span><span>Rp {Number(receipt.tax_amount).toLocaleString('id-ID')}</span></div>}
       {receipt.tip_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginBottom:2 }}><span>Tip</span><span>Rp {Number(receipt.tip_amount).toLocaleString('id-ID')}</span></div>}
-      <div style={{ display:'flex', justifyContent:'space-between', fontWeight:700, fontSize:13, marginTop:3, paddingTop:3, borderTop:'1px solid #000' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', fontWeight:700, fontSize:13, marginTop:4, paddingTop:4, borderTop:'1px solid #000' }}>
         <span>TOTAL</span><span>Rp {Number(receipt.total_amount).toLocaleString('id-ID')}</span>
       </div>
       {receipt.is_deposit && <>
@@ -364,41 +385,63 @@ function ReceiptModal({ receipt, settings, onClose }) {
       <div style={{ textAlign:'center', fontSize:10 }}>
         <div>Bayar: {receipt.payment_method.toUpperCase()}</div>
         {settings?.receipt_footer && <div style={{ marginTop:3 }}>{settings.receipt_footer}</div>}
-        <div style={{ marginTop:4, fontWeight:600 }}>*** Terima Kasih ***</div>
+        <div style={{ marginTop:5, fontWeight:600 }}>*** Terima Kasih ***</div>
       </div>
     </div>
   )
 
-  if (screenshotMode) {
-    return (
-      <div style={{ position:'fixed', inset:0, background:'white', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', zIndex:200 }}
-        onClick={() => setScreenshotMode(false)}>
-        <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>Screenshot now, then tap anywhere to go back</div>
-        {receiptContent}
-        <div style={{ fontSize:11, color:'#aaa', marginTop:12 }}>Tap to close screenshot mode</div>
-      </div>
-    )
-  }
-
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 }}>
-      <div style={{ display:'flex', flexDirection:'column', gap:10, alignItems:'center' }}>
-        <div style={{ background:'white', borderRadius:8, padding:6, boxShadow:'0 4px 24px rgba(0,0,0,0.3)' }}>
-          {receiptContent}
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:16 }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:10, alignItems:'center', maxHeight:'90vh', overflowY:'auto' }}>
+
+        {/* Receipt preview */}
+        <div style={{ background:'white', borderRadius:10, padding:8, boxShadow:'0 4px 32px rgba(0,0,0,0.4)' }}>
+          {receiptEl}
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width: RECEIPT_WIDTH + 12 }}>
-          <button style={{ background:'#111', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'12px 8px', cursor:'pointer' }} onClick={() => setScreenshotMode(true)}>
-            📸 Screenshot to Print
+
+        {/* Primary action: Share as image (opens iOS share sheet → WhatsApp, Email, Save, Print) */}
+        <button
+          onClick={handleShareImage}
+          disabled={sharing}
+          style={{
+            width: RECEIPT_WIDTH + 16,
+            padding: '14px',
+            background: 'var(--rose)',
+            color: 'white',
+            border: 'none',
+            borderRadius: 10,
+            fontWeight: 700,
+            fontSize: 15,
+            cursor: 'pointer',
+            opacity: sharing ? 0.7 : 1,
+          }}>
+          {sharing ? 'Preparing...' : '📤 Share Receipt Image'}
+        </button>
+
+        <div style={{ fontSize: 11, color: '#ddd', textAlign: 'center', width: RECEIPT_WIDTH + 16 }}>
+          Tap to share via WhatsApp, Email, or save to Photos
+        </div>
+
+        {/* Secondary actions */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width: RECEIPT_WIDTH + 16 }}>
+          <button
+            onClick={handleSaveImage}
+            disabled={sharing}
+            style={{ background:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'11px 8px', cursor:'pointer' }}>
+            💾 Save Image
           </button>
-          <button style={{ background:'#25d366', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'12px 8px', cursor:'pointer' }} onClick={handleWhatsApp}>
-            WhatsApp
+          <button
+            onClick={handleWhatsAppText}
+            style={{ background:'#25d366', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, padding:'11px 8px', cursor:'pointer' }}>
+            💬 WA Text Only
           </button>
-          <button className="btn btn-ghost" style={{ background:'white', fontSize:13 }} onClick={handleEmail}>Email</button>
-          <button className="btn btn-ghost" style={{ background:'white', fontSize:13 }} onClick={onClose}>Close</button>
         </div>
-        <div style={{ fontSize:11, color:'#ddd', textAlign:'center', maxWidth: RECEIPT_WIDTH + 12 }}>
-          For Woya WP583: Screenshot → open POS-PrinterV1.0 app → print via Bluetooth
-        </div>
+
+        <button
+          onClick={onClose}
+          style={{ width: RECEIPT_WIDTH + 16, padding:'11px', background:'rgba(255,255,255,0.15)', color:'white', border:'none', borderRadius:9, fontWeight:600, fontSize:13, cursor:'pointer' }}>
+          Close
+        </button>
       </div>
     </div>
   )
