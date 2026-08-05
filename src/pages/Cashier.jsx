@@ -166,10 +166,13 @@ export default function Cashier() {
                 <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 4 }}>× Rp {item.unitPrice.toLocaleString('id-ID')}</span>
                 <span style={{ fontWeight: 700, marginLeft: 'auto' }}>Rp {(item.unitPrice * item.qty).toLocaleString('id-ID')}</span>
               </div>
-              <select value={item.technician_id} onChange={e => updateTechnician(idx, e.target.value)} className="input" style={{ fontSize: 13, padding: '7px 10px' }}>
-                <option value="">No technician</option>
-                {staffList.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-              </select>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Nail Technician</label>
+                <select value={item.technician_id} onChange={e => updateTechnician(idx, e.target.value)} className="input" style={{ fontSize: 13, padding: '7px 10px' }}>
+                  <option value="">No technician</option>
+                  {staffList.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </select>
+              </div>
             </div>
           ))}
 
@@ -395,8 +398,8 @@ function ReceiptModal({ receipt, settings, onClose }) {
       <div style={{ fontSize:10, marginBottom:4 }}>
         <div>No : {String(receipt.order_number || receipt.id.slice(0,8)).padStart(7, '0')}</div>
         <div>Tgl: {format(receipt.createdAt, 'dd/MM/yy HH:mm')}</div>
-        <div>Cst: {receipt.customerName}</div>
-        <div>Kas: {receipt.cashierName}</div>
+        <div>Customer: {receipt.customerName}</div>
+        <div>Nail Tech: {receipt.cashierName}</div>
       </div>
       <div style={{ borderTop:'1px dashed #000', margin:'4px 0' }} />
       {receipt.items.map((item, idx) => (
