@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { format, startOfWeek, endOfWeek, addDays, isSameDay } from 'date-fns'
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ todayRevenue: 0, todayCount: 0, appointmentsToday: 0, lowStock: 0 })
+  const [stats, setStats] = useState({ todayRevenue: 0, todayCount: 0, appointmentsToday: 0 })
   const [weekAppts, setWeekAppts] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -17,11 +17,10 @@ export default function Dashboard() {
     const weekStart  = startOfWeek(now, { weekStartsOn: 1 }) // Monday
     const weekEnd    = endOfWeek(now, { weekStartsOn: 1 })   // Sunday
 
-    const [txns, products, rawAppts, apptSvcs, customers, staffData] = await Promise.all([
+    const [txns, rawAppts, apptSvcs, customers, staffData] = await Promise.all([
       supabase.from('transactions').select('total_amount')
         .gte('created_at', todayStart.toISOString())
         .lte('created_at', todayEnd.toISOString()),
-      supabase.from('products').select('stock_quantity, low_stock_threshold').eq('active', true),
       supabase.from('appointments').select('*')
         .gte('scheduled_start', weekStart.toISOString())
         .lte('scheduled_start', weekEnd.toISOString())
@@ -38,7 +37,7 @@ export default function Dashboard() {
       todayRevenue: (txns.data || []).reduce((s, t) => s + Number(t.total_amount), 0),
       todayCount: (txns.data || []).length,
       appointmentsToday: todayAppts.length,
-      lowStock: low
+
     })
 
     // Merge week appointments with names
@@ -74,11 +73,11 @@ export default function Dashboard() {
       </div>
 
       {/* Today's stats */}
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 24 }}>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 24 }}>
         <StatCard label="Today's Revenue" value={`Rp ${stats.todayRevenue.toLocaleString('id-ID')}`} />
         <StatCard label="Transactions Today" value={stats.todayCount} />
         <StatCard label="Appointments Today" value={stats.appointmentsToday} />
-        <StatCard label="Low Stock Items" value={stats.lowStock} accent={stats.lowStock > 0 ? 'var(--danger)' : undefined} />
+
       </div>
 
       {/* Weekly schedule */}
