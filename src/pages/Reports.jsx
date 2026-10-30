@@ -21,6 +21,8 @@ export default function Reports() {
   const [staffMap, setStaffMap] = useState({})
   const [customerMap, setCustomerMap] = useState({})
   const [deleting, setDeleting] = useState(false)
+  const [review, setReview] = useState(null)
+  const [zoomUrl, setZoomUrl] = useState(null)
 
   useEffect(() => { load() }, [mode, year, month])
 
@@ -108,11 +110,46 @@ export default function Reports() {
   const periodLabel = mode === 'monthly' ? format(new Date(year, month, 1), 'MMMM yyyy') : String(year)
 
   // ---------- owner-only deletion ----------
+  // Removes stored proof photos for sales that are about to be deleted
+  async function removePhotosFor(ids) {
+    try {
+      for (let i = 0; i < ids.length; i += 40) {
+        const chunk = ids.slice(i, i + 40)
+        const { data } = await supabase.from('transaction_photos').select('photo_path').in('transaction_id', chunk)
+        const paths = (data || []).map(x => x.photo_path)
+        if (paths.length) await supabase.storage.from('proof-photos').remove(paths)
+      }
+    } catch (e) { console.error('photo cleanup failed', e) }
+  }
+
+  // Opens the review window for one sale: item lines + proof photos
+  async function openReview(t) {
+    setReview({ txn: t, lines: [], photos: [], loading: true, note: null })
+    const [l, p] = await Promise.all([
+      supabase.from('transaction_services').select('*').eq('transaction_id', t.id),
+      supabase.from('transaction_photos').select('*').eq('transaction_id', t.id).order('created_at'),
+    ])
+    let photos = []
+    let note = null
+    if (p.error) {
+      note = 'Photos could not be loaded: ' + p.error.message + ' (has migration_4.sql been run?)'
+    } else {
+      const paths = (p.data || []).map(x => x.photo_path)
+      if (paths.length) {
+        const { data: signed, error: sErr } = await supabase.storage.from('proof-photos').createSignedUrls(paths, 3600)
+        if (sErr) note = 'Photos could not be opened: ' + sErr.message
+        photos = (signed || []).filter(s => s.signedUrl).map(s => ({ url: s.signedUrl, path: s.path }))
+      }
+    }
+    setReview({ txn: t, lines: l.data || [], photos, loading: false, note })
+  }
+
   async function deleteTransaction(t) {
     if (!isOwner) return
     const label = '#' + String(t.order_number || '').padStart(7, '0')
     if (!confirm(`Permanently delete sale ${label} (Rp ${Number(t.total_amount).toLocaleString('id-ID')})?\n\nThis cannot be undone.`)) return
     setDeleting(true)
+    await removePhotosFor([t.id])
     const { data, error: err } = await supabase.from('transactions').delete().eq('id', t.id).select()
     setDeleting(false)
     if (err) { alert('Could not delete: ' + err.message); return }
@@ -139,6 +176,9 @@ export default function Reports() {
     if (typed !== 'DELETE') { if (typed !== null) alert('Cancelled. You must type DELETE exactly.'); return }
     setDeleting(true)
     const { start, end } = getRange()
+    const idRes = await supabase.from('transactions').select('id')
+      .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
+    await removePhotosFor((idRes.data || []).map(x => x.id))
     const r1 = await supabase.from('transactions').delete()
       .gte('created_at', start.toISOString()).lte('created_at', end.toISOString()).select()
     if (r1.error) { setDeleting(false); alert('Could not delete sales: ' + r1.error.message); load(); return }
@@ -227,9 +267,9 @@ export default function Reports() {
         <div className="card" style={{ marginTop: 28, borderColor: '#e3b5b1' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
             <div>
-              <h3>Manage Records (Owner only)</h3>
+              <h3>Review & Manage Records (Owner only)</h3>
               <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-                Deleting a sale or expense removes it from the reports permanently. Showing records for <strong>{periodLabel}</strong>.
+                Tap Review to check a sale's items, recalculated total and proof photos. Deleting a sale or expense removes it from the reports permanently. Showing records for <strong>{periodLabel}</strong>.
               </p>
             </div>
             <button className="btn btn-danger" style={{ minHeight: 40, padding: '8px 14px', fontSize: 13 }}
@@ -253,9 +293,14 @@ export default function Reports() {
                       <td style={{ textTransform: 'capitalize' }}>{(t.payment_method || '').replace('_', ' ')}</td>
                       <td>Rp {Number(t.total_amount).toLocaleString('id-ID')}</td>
                       <td>
-                        <button className="btn btn-ghost" disabled={deleting}
-                          style={{ minHeight: 32, padding: '4px 12px', fontSize: 13, color: 'var(--danger)' }}
-                          onClick={() => deleteTransaction(t)}>Delete</button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-ghost" disabled={deleting}
+                            style={{ minHeight: 32, padding: '4px 12px', fontSize: 13 }}
+                            onClick={() => openReview(t)}>Review</button>
+                          <button className="btn btn-ghost" disabled={deleting}
+                            style={{ minHeight: 32, padding: '4px 12px', fontSize: 13, color: 'var(--danger)' }}
+                            onClick={() => deleteTransaction(t)}>Delete</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -290,6 +335,16 @@ export default function Reports() {
           )}
         </div>
       )}
+      {review && (
+        <ReviewModal review={review} serviceMap={serviceMap} staffMap={staffMap} customerMap={customerMap}
+          onClose={() => setReview(null)} onZoom={u => setZoomUrl(u)} />
+      )}
+      {zoomUrl && (
+        <div onClick={() => setZoomUrl(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <img src={zoomUrl} alt="Proof of work" style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 8 }} />
+        </div>
+      )}
     </div>
   )
 }
@@ -299,6 +354,113 @@ function Stat({ label, value, accent }) {
     <div className="card">
       <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', color: accent }}>{value}</div>
+    </div>
+  )
+}
+
+function ReviewModal({ review, serviceMap, staffMap, customerMap, onClose, onZoom }) {
+  const t = review.txn
+  const rp = n => 'Rp ' + Number(n).toLocaleString('id-ID')
+
+  // group identical item lines (same service, technician, price) into quantities
+  const groups = {}
+  review.lines.forEach(l => {
+    const key = `${l.service_id}|${l.technician_id}|${l.price}`
+    if (!groups[key]) groups[key] = { service: serviceMap[l.service_id] || 'Unknown service', tech: staffMap[l.technician_id] || 'Unassigned', unit: Number(l.price), qty: 0 }
+    groups[key].qty += 1
+  })
+  const rows = Object.values(groups)
+
+  const itemsSum = review.lines.reduce((s, l) => s + Number(l.price), 0)
+  const discount = Number(t.discount_amount || 0)
+  const tax = Number(t.tax_amount || 0)
+  const tip = Number(t.tip_amount || 0)
+  const calcTotal = itemsSum - discount + tax + tip
+  const recorded = Number(t.total_amount)
+  const totalDiff = recorded - calcTotal
+  const subtotalDiff = Number(t.subtotal || 0) - itemsSum
+  const matches = Math.abs(totalDiff) < 1 && Math.abs(subtotalDiff) < 1
+  const noLines = !review.loading && review.lines.length === 0
+
+  const line = (label, value, bold) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4, fontWeight: bold ? 700 : 400 }}>
+      <span>{label}</span><span>{value}</span>
+    </div>
+  )
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div className="card" onClick={e => e.stopPropagation()} style={{ width: 600, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+          <div>
+            <h3>Sale #{String(t.order_number || '').padStart(7, '0')}</h3>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+              {format(new Date(t.created_at), 'EEEE, d MMM yyyy, h:mm a')} · {customerMap[t.customer_id] || 'Walk-in'} · rung up by {staffMap[t.cashier_id] || 'unknown'}
+            </p>
+          </div>
+          <button className="btn btn-ghost" style={{ minHeight: 36, padding: '4px 14px' }} onClick={onClose}>Close</button>
+        </div>
+
+        <h4 style={{ margin: '18px 0 8px', fontSize: 14 }}>Items charged</h4>
+        {review.loading && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Loading…</p>}
+        {noLines && <p style={{ fontSize: 13, color: 'var(--danger)' }}>No item lines were recorded for this sale.</p>}
+        {rows.length > 0 && (
+          <table>
+            <thead><tr><th>Service</th><th>Technician</th><th>Qty</th><th>Unit</th><th>Line total</th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.service}</td><td>{r.tech}</td><td>{r.qty}</td><td>{rp(r.unit)}</td><td>{rp(r.unit * r.qty)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {!review.loading && (
+          <div style={{ marginTop: 16, padding: 14, background: '#f7f3ee', borderRadius: 9 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>Calculation check</div>
+            {line('Items added up', rp(itemsSum))}
+            {discount > 0 && line('Discount', '-' + rp(discount))}
+            {tax > 0 && line('Tax', rp(tax))}
+            {tip > 0 && line('Tip', rp(tip))}
+            <div style={{ borderTop: '1px solid var(--line)', margin: '8px 0' }} />
+            {line('Total it should be', rp(calcTotal), true)}
+            {line('Total recorded in system', rp(recorded), true)}
+            <div style={{ marginTop: 10 }}>
+              {matches
+                ? <span className="badge badge-completed">✓ Calculation matches</span>
+                : <span className="badge badge-no_show">⚠ Does not match</span>}
+            </div>
+            {!matches && (
+              <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 8 }}>
+                {Math.abs(totalDiff) >= 1 && <>Recorded total is {rp(Math.abs(totalDiff))} {totalDiff > 0 ? 'higher' : 'lower'} than the items add up to. </>}
+                {Math.abs(subtotalDiff) >= 1 && <>Recorded subtotal ({rp(t.subtotal || 0)}) differs from the item lines ({rp(itemsSum)}).</>}
+              </p>
+            )}
+            {t.is_deposit && (
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+                Down payment sale: {rp(t.deposit_amount)} received, {rp(t.balance_due)} still due.
+              </p>
+            )}
+          </div>
+        )}
+
+        <h4 style={{ margin: '18px 0 8px', fontSize: 14 }}>Proof of work photos ({review.photos.length})</h4>
+        {review.note && <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 8 }}>{review.note}</p>}
+        {!review.loading && !review.note && review.photos.length === 0 && (
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>No proof photos were attached to this sale.</p>
+        )}
+        {review.photos.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+            {review.photos.map(ph => (
+              <img key={ph.path} src={ph.url} alt="Proof of work" onClick={() => onZoom(ph.url)}
+                style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 9, cursor: 'zoom-in', border: '1px solid var(--line)' }} />
+            ))}
+          </div>
+        )}
+        {review.photos.length > 0 && <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Tap a photo to enlarge it.</p>}
+      </div>
     </div>
   )
 }
