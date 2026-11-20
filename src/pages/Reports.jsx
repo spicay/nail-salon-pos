@@ -17,6 +17,7 @@ export default function Reports() {
   const [txns, setTxns] = useState([])
   const [expenses, setExpenses] = useState([])
   const [lines, setLines] = useState([])
+  const [tips, setTips] = useState([])
   const [serviceMap, setServiceMap] = useState({})
   const [staffMap, setStaffMap] = useState({})
   const [customerMap, setCustomerMap] = useState({})
@@ -39,7 +40,7 @@ export default function Reports() {
     setLoading(true); setError(null)
     const { start, end } = getRange()
 
-    const [t, e, tl, sv, st, cu] = await Promise.all([
+    const [t, e, tl, sv, st, cu, tp] = await Promise.all([
       supabase.from('transactions').select('*')
         .gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
         .order('created_at', { ascending: false }),
@@ -50,12 +51,14 @@ export default function Reports() {
       supabase.from('services').select('id, name'),
       supabase.from('staff').select('id, full_name'),
       supabase.from('customers').select('id, full_name'),
+      supabase.from('transaction_tips').select('*').limit(10000),
     ])
 
     if (t.error) { setError('Could not load sales: ' + t.error.message); setLoading(false); return }
     setTxns((t.data || []).filter(x => x.status === 'completed' || !x.status))
     setExpenses(e.data || [])
     setLines(tl.data || [])
+    setTips(tp.error ? [] : (tp.data || []))
     setServiceMap(Object.fromEntries((sv.data || []).map(x => [x.id, x.name])))
     setStaffMap(Object.fromEntries((st.data || []).map(x => [x.id, x.full_name])))
     setCustomerMap(Object.fromEntries((cu.data || []).map(x => [x.id, x.full_name])))
@@ -69,6 +72,22 @@ export default function Reports() {
 
   const txnIds = new Set(txns.map(t => t.id))
   const periodLines = lines.filter(l => txnIds.has(l.transaction_id))
+
+  // tips are reported separately and are NOT part of revenue
+  const periodTips = tips.filter(x => txnIds.has(x.transaction_id))
+  const tipsTotal = periodTips.reduce((s, x) => s + Number(x.amount), 0)
+  const txnById = Object.fromEntries(txns.map(t => [t.id, t]))
+  const tipByTherapist = {}
+  periodTips.forEach(x => {
+    const n = staffMap[x.staff_id] || 'Unassigned'
+    if (!tipByTherapist[n]) tipByTherapist[n] = { total: 0, count: 0 }
+    tipByTherapist[n].total += Number(x.amount)
+    tipByTherapist[n].count += 1
+  })
+  const tipTherapists = Object.entries(tipByTherapist).sort((a, b) => b[1].total - a[1].total)
+  const tipDetails = periodTips
+    .map(x => ({ ...x, txn: txnById[x.transaction_id] }))
+    .sort((a, b) => new Date(b.txn?.created_at || 0) - new Date(a.txn?.created_at || 0))
 
   const byPayment = {}
   txns.forEach(t => { byPayment[t.payment_method] = (byPayment[t.payment_method] || 0) + Number(t.total_amount) })
@@ -124,10 +143,11 @@ export default function Reports() {
 
   // Opens the review window for one sale: item lines + proof photos
   async function openReview(t) {
-    setReview({ txn: t, lines: [], photos: [], loading: true, note: null })
-    const [l, p] = await Promise.all([
+    setReview({ txn: t, lines: [], photos: [], loading: true, note: null, tips: [] })
+    const [l, p, tp] = await Promise.all([
       supabase.from('transaction_services').select('*').eq('transaction_id', t.id),
       supabase.from('transaction_photos').select('*').eq('transaction_id', t.id).order('created_at'),
+      supabase.from('transaction_tips').select('*').eq('transaction_id', t.id),
     ])
     let photos = []
     let note = null
@@ -142,7 +162,7 @@ export default function Reports() {
         photos = (signed || []).filter(s => s.signedUrl).map(s => ({ url: s.signedUrl, path: s.path, createdAt: createdMap[s.path] }))
       }
     }
-    setReview({ txn: t, lines: l.data || [], photos, loading: false, note })
+    setReview({ txn: t, lines: l.data || [], photos, loading: false, note, tips: tp.error ? [] : (tp.data || []) })
   }
 
   async function deleteTransaction(t) {
@@ -261,6 +281,51 @@ export default function Reports() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* ============ TIPS REPORT (separate from revenue) ============ */}
+      <div className="card" style={{ marginTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+          <h3>Tips Report</h3>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{periodLabel}</span>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+          Tips are not included in the revenue, expenses or profit above. Each tip belongs to the therapist named.
+        </p>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', marginBottom: 14 }}>
+          Total tips: Rp {tipsTotal.toLocaleString('id-ID')}
+        </div>
+        {periodTips.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>No tips recorded in this period.</p>}
+        {periodTips.length > 0 && (
+          <>
+            <h4 style={{ fontSize: 14, marginBottom: 8 }}>Tips by therapist</h4>
+            <table style={{ marginBottom: 18 }}>
+              <thead><tr><th>Therapist</th><th>Number of tips</th><th>Total tips</th></tr></thead>
+              <tbody>
+                {tipTherapists.map(([name, v]) => (
+                  <tr key={name}><td style={{ fontWeight: 600 }}>{name}</td><td>{v.count}</td><td>Rp {v.total.toLocaleString('id-ID')}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            <h4 style={{ fontSize: 14, marginBottom: 8 }}>Every tip</h4>
+            <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 9 }}>
+              <table>
+                <thead><tr><th>Date</th><th>Sale no.</th><th>Customer</th><th>Therapist</th><th>Tip</th></tr></thead>
+                <tbody>
+                  {tipDetails.map(x => (
+                    <tr key={x.id}>
+                      <td>{x.txn ? format(new Date(x.txn.created_at), 'd MMM yyyy, h:mm a') : '-'}</td>
+                      <td>{String(x.txn?.order_number || '').padStart(7, '0')}</td>
+                      <td>{customerMap[x.txn?.customer_id] || 'Walk-in'}</td>
+                      <td>{staffMap[x.staff_id] || 'Unassigned'}</td>
+                      <td>Rp {Number(x.amount).toLocaleString('id-ID')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ============ OWNER ONLY ============ */}
@@ -383,8 +448,9 @@ function ReviewModal({ review, serviceMap, staffMap, customerMap, onClose, onZoo
   const itemsSum = review.lines.reduce((s, l) => s + Number(l.price), 0)
   const discount = Number(t.discount_amount || 0)
   const tax = Number(t.tax_amount || 0)
-  const tip = Number(t.tip_amount || 0)
-  const calcTotal = itemsSum - discount + tax + tip
+  const tipAmount = Number(t.tip_amount || 0)
+  const tipList = review.tips || []
+  const calcTotal = itemsSum - discount + tax // tips are kept separate
   const recorded = Number(t.total_amount)
   const totalDiff = recorded - calcTotal
   const subtotalDiff = Number(t.subtotal || 0) - itemsSum
@@ -432,7 +498,6 @@ function ReviewModal({ review, serviceMap, staffMap, customerMap, onClose, onZoo
             {line('Items added up', rp(itemsSum))}
             {discount > 0 && line('Discount', '-' + rp(discount))}
             {tax > 0 && line('Tax', rp(tax))}
-            {tip > 0 && line('Tip', rp(tip))}
             <div style={{ borderTop: '1px solid var(--line)', margin: '8px 0' }} />
             {line('Total it should be', rp(calcTotal), true)}
             {line('Total recorded in system', rp(recorded), true)}
@@ -452,6 +517,14 @@ function ReviewModal({ review, serviceMap, staffMap, customerMap, onClose, onZoo
                 Down payment sale: {rp(t.deposit_amount)} received, {rp(t.balance_due)} still due.
               </p>
             )}
+          </div>
+        )}
+
+        {!review.loading && (tipList.length > 0 || tipAmount > 0) && (
+          <div style={{ marginTop: 12, padding: 14, background: '#fdf8ef', border: '1px solid #eadfc4', borderRadius: 9 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>Tip (separate, not part of the total)</div>
+            {tipList.map(x => line('Tip for ' + (staffMap[x.staff_id] || 'Unassigned'), rp(x.amount)))}
+            {tipList.length === 0 && line('Tip (therapist not recorded)', rp(tipAmount))}
           </div>
         )}
 
