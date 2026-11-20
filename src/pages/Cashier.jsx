@@ -74,8 +74,6 @@ export default function Cashier() {
   const [taxRate, setTaxRate] = useState(0)
   const [tip, setTip] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [isDeposit, setIsDeposit] = useState(false)
-  const [depositAmount, setDepositAmount] = useState(0)
   const [saving, setSaving] = useState(false)
   const [receipt, setReceipt] = useState(null)
   const [photos, setPhotos] = useState([]) // [{ blob, url }]
@@ -166,12 +164,9 @@ export default function Cashier() {
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const taxAmount = (subtotal - discount) * (taxRate / 100)
   const total = subtotal - discount + taxAmount + Number(tip || 0)
-  const amountDueNow = isDeposit ? Number(depositAmount || 0) : total
-  const balanceRemaining = isDeposit ? Math.max(0, total - Number(depositAmount || 0)) : 0
 
-  // Proof of work is required for every sale except a down payment
-  // (a DP is usually taken before any work exists to photograph)
-  const proofRequired = !isDeposit
+  // Proof of work is required for every sale
+  const proofRequired = true
   const proofMissing = proofRequired && photos.length === 0
 
   async function checkout() {
@@ -179,9 +174,6 @@ export default function Cashier() {
     if (proofMissing) {
       alert('Proof of work is required.\nPlease add at least 1 photo of the finished nails before completing the sale.')
       return
-    }
-    if (isDeposit && (!depositAmount || depositAmount <= 0)) {
-      alert('Enter a down payment amount'); return
     }
     setSaving(true)
     const uploadedPaths = []
@@ -208,9 +200,6 @@ export default function Cashier() {
         subtotal, discount_amount: discount, tax_amount: taxAmount,
         tip_amount: tip || 0, total_amount: total,
         payment_method: paymentMethod,
-        is_deposit: isDeposit,
-        deposit_amount: isDeposit ? Number(depositAmount) : 0,
-        balance_due: isDeposit ? balanceRemaining : 0,
       }).select().single()
       if (txnError) throw txnError
 
@@ -255,7 +244,6 @@ export default function Cashier() {
       photos.forEach(p => URL.revokeObjectURL(p.url))
       setPhotos([])
       setCart([]); setCustomerId(''); setDiscount(0); setTip(0)
-      setIsDeposit(false); setDepositAmount(0)
     } catch (e) {
       // sale was not saved: remove any photos already uploaded, keep the cart and photos on screen to retry
       if (!saved && uploadedPaths.length > 0) {
@@ -339,20 +327,6 @@ export default function Cashier() {
               <option value="split">Split</option>
             </select>
           </div>
-
-          <div style={{ marginTop: 14, padding: 12, background: '#f7f3ee', borderRadius: 9 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              <input type="checkbox" checked={isDeposit} onChange={e => setIsDeposit(e.target.checked)} />
-              This is a Down Payment (DP)
-            </label>
-            {isDeposit && (
-              <>
-                <label style={{ fontSize: 13, color: 'var(--muted)', marginTop: 10, display: 'block' }}>Amount received now (Rp)</label>
-                <input type="number" className="input" value={depositAmount} onChange={e => setDepositAmount(Number(e.target.value) || 0)} style={{ marginTop: 4 }} />
-              </>
-            )}
-          </div>
-
           {/* Proof of work photos */}
           <div style={{ marginTop: 14, padding: 12, background: '#f7f3ee', borderRadius: 9 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Proof of Work (photos){proofRequired && <span style={{ color: 'var(--danger)' }}> * required</span>}</div>
@@ -364,9 +338,6 @@ export default function Cashier() {
               <div style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600, marginBottom: 8 }}>
                 Add at least 1 photo to complete this sale.
               </div>
-            )}
-            {isDeposit && (
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Not required for down payments.</div>
             )}
 
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
@@ -417,14 +388,10 @@ export default function Cashier() {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Tax ({taxRate}%)</span><span>Rp {taxAmount.toLocaleString('id-ID')}</span></div>
             {tip > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Tip</span><span>Rp {Number(tip).toLocaleString('id-ID')}</span></div>}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700, marginTop: 8 }}><span>Total</span><span>Rp {total.toLocaleString('id-ID')}</span></div>
-            {isDeposit && <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 8, color: 'var(--success)', fontWeight: 600 }}><span>DP Due Now</span><span>Rp {amountDueNow.toLocaleString('id-ID')}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--muted)' }}><span>Balance Remaining</span><span>Rp {balanceRemaining.toLocaleString('id-ID')}</span></div>
-            </>}
           </div>
 
           <button className="btn btn-accent" style={{ width: '100%', marginTop: 16 }} disabled={cart.length === 0 || saving || photoBusy || proofMissing} onClick={checkout}>
-            {saving ? (photos.length > 0 ? 'Saving & uploading photos…' : 'Processing...') : proofMissing && cart.length > 0 ? '📷 Add proof photo to continue' : isDeposit ? 'Record Down Payment' : 'Complete Sale'}
+            {saving ? (photos.length > 0 ? 'Saving & uploading photos…' : 'Processing...') : proofMissing && cart.length > 0 ? '📷 Add proof photo to continue' : 'Complete Sale'}
           </button>
         </div>
       </div>
@@ -541,10 +508,6 @@ function ReceiptModal({ receipt, settings, onClose }) {
     if (receipt.tax_amount > 0) L.push('Pajak: Rp ' + Number(receipt.tax_amount).toLocaleString('id-ID'))
     if (receipt.tip_amount > 0) L.push('Tip: Rp ' + Number(receipt.tip_amount).toLocaleString('id-ID'))
     L.push('*TOTAL: Rp ' + Number(receipt.total_amount).toLocaleString('id-ID') + '*')
-    if (receipt.is_deposit) {
-      L.push(''); L.push('*DP Diterima: Rp ' + Number(receipt.deposit_amount).toLocaleString('id-ID') + '*')
-      L.push('Sisa: Rp ' + Number(receipt.balance_due).toLocaleString('id-ID'))
-    }
     L.push(''); L.push('Bayar: ' + receipt.payment_method.toUpperCase())
     if (settings?.receipt_footer) { L.push(''); L.push(settings.receipt_footer) }
     return L.join('\n')
@@ -593,12 +556,6 @@ function ReceiptModal({ receipt, settings, onClose }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13, marginTop: 4, paddingTop: 4, borderTop: '1px solid #000' }}>
         <span>TOTAL</span><span>Rp {Number(receipt.total_amount).toLocaleString('id-ID')}</span>
       </div>
-      {receipt.is_deposit && <>
-        <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 11, marginBottom: 2 }}><span>DP Diterima</span><span>Rp {Number(receipt.deposit_amount).toLocaleString('id-ID')}</span></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}><span>Sisa Bayar</span><span>Rp {Number(receipt.balance_due).toLocaleString('id-ID')}</span></div>
-        {settings?.bank_account_info && <div style={{ fontSize: 9, marginTop: 3, color: '#444' }}>{settings.bank_account_info}</div>}
-      </>}
       <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />
       <div style={{ textAlign: 'center', fontSize: 10 }}>
         <div>Bayar: {receipt.payment_method.toUpperCase()}</div>
