@@ -138,7 +138,8 @@ export default function Reports() {
       if (paths.length) {
         const { data: signed, error: sErr } = await supabase.storage.from('proof-photos').createSignedUrls(paths, 3600)
         if (sErr) note = 'Photos could not be opened: ' + sErr.message
-        photos = (signed || []).filter(s => s.signedUrl).map(s => ({ url: s.signedUrl, path: s.path }))
+        const createdMap = Object.fromEntries((p.data || []).map(x => [x.photo_path, x.created_at]))
+        photos = (signed || []).filter(s => s.signedUrl).map(s => ({ url: s.signedUrl, path: s.path, createdAt: createdMap[s.path] }))
       }
     }
     setReview({ txn: t, lines: l.data || [], photos, loading: false, note })
@@ -342,7 +343,15 @@ export default function Reports() {
       {zoomUrl && (
         <div onClick={() => setZoomUrl(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
-          <img src={zoomUrl} alt="Proof of work" style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 8 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <img src={zoomUrl.url} alt="Proof of work" style={{ maxWidth: '96vw', maxHeight: '86vh', borderRadius: 8 }} />
+            {zoomUrl.createdAt && (
+              <div style={{ color: 'white', fontSize: 14, fontWeight: 600 }}>
+                Saved {format(new Date(zoomUrl.createdAt), 'EEEE, dd MMM yyyy, HH:mm:ss')}
+              </div>
+            )}
+            <div style={{ color: '#bbb', fontSize: 12 }}>Tap anywhere to close</div>
+          </div>
         </div>
       )}
     </div>
@@ -454,8 +463,15 @@ function ReviewModal({ review, serviceMap, staffMap, customerMap, onClose, onZoo
         {review.photos.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             {review.photos.map(ph => (
-              <img key={ph.path} src={ph.url} alt="Proof of work" onClick={() => onZoom(ph.url)}
-                style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 9, cursor: 'zoom-in', border: '1px solid var(--line)' }} />
+              <div key={ph.path} style={{ position: 'relative' }}>
+                <img src={ph.url} alt="Proof of work" onClick={() => onZoom({ url: ph.url, createdAt: ph.createdAt })}
+                  style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 9, cursor: 'zoom-in', border: '1px solid var(--line)', display: 'block' }} />
+                {ph.createdAt && (
+                  <div style={{ position: 'absolute', left: 4, right: 4, bottom: 4, background: 'rgba(0,0,0,0.65)', color: 'white', fontSize: 10, lineHeight: 1.3, padding: '3px 5px', borderRadius: 5, pointerEvents: 'none' }}>
+                    Saved {format(new Date(ph.createdAt), 'dd MMM yyyy, HH:mm:ss')}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
