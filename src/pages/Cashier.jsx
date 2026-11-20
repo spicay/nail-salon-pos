@@ -147,7 +147,7 @@ export default function Cashier() {
           source === 'camera' ? 'Live camera' : 'From gallery',
         ]
         const blob = await compressImage(f, stamp)
-        added.push({ blob, url: URL.createObjectURL(blob) })
+        added.push({ blob, url: URL.createObjectURL(blob), stamp })
       } catch (e) {
         alert('One of the photos could not be read.')
       }
@@ -169,13 +169,39 @@ export default function Cashier() {
   const amountDueNow = isDeposit ? Number(depositAmount || 0) : total
   const balanceRemaining = isDeposit ? Math.max(0, total - Number(depositAmount || 0)) : 0
 
+  // Proof of work is required for every sale except a down payment
+  // (a DP is usually taken before any work exists to photograph)
+  const proofRequired = !isDeposit
+  const proofMissing = proofRequired && photos.length === 0
+
   async function checkout() {
     if (cart.length === 0) return
+    if (proofMissing) {
+      alert('Proof of work is required.\nPlease add at least 1 photo of the finished nails before completing the sale.')
+      return
+    }
     if (isDeposit && (!depositAmount || depositAmount <= 0)) {
       alert('Enter a down payment amount'); return
     }
     setSaving(true)
+    const uploadedPaths = []
+    let saved = false
     try {
+      // 1. Upload the photos FIRST, so a sale is never saved without its proof
+      if (photos.length > 0) {
+        await ensureDeviceSession()
+        const folder = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : String(Date.now())
+        for (let i = 0; i < photos.length; i++) {
+          const path = `${folder}/${Date.now()}-${i}.jpg`
+          const up = await supabase.storage.from('proof-photos').upload(path, photos[i].blob, { contentType: 'image/jpeg', upsert: false })
+          if (up.error) {
+            throw new Error(`Photo ${i + 1} could not be uploaded (${up.error.message}). Nothing was saved. Check the internet connection and try again. If it keeps failing, make sure migration_4.sql was run in Supabase.`)
+          }
+          uploadedPaths.push(path)
+        }
+      }
+
+      // 2. Save the sale
       const { data: txn, error: txnError } = await supabase.from('transactions').insert({
         customer_id: customerId || null,
         cashier_id: staff?.id,
@@ -198,31 +224,22 @@ export default function Cashier() {
         }))
       )
       const { error } = await supabase.from('transaction_services').insert(serviceRows)
-      if (error) throw error
+      if (error) {
+        await supabase.from('transactions').delete().eq('id', txn.id)
+        throw error
+      }
 
-      // Upload proof-of-work photos (the sale is already saved even if this fails)
-      let proofCount = 0
-      let proofFailed = 0
-      if (photos.length > 0) {
-        await ensureDeviceSession()
-        for (let i = 0; i < photos.length; i++) {
-          const path = `${txn.id}/${Date.now()}-${i}.jpg`
-          const up = await supabase.storage.from('proof-photos').upload(path, photos[i].blob, { contentType: 'image/jpeg', upsert: false })
-          if (up.error) { proofFailed++; console.error('photo upload error:', up.error); continue }
-          const row = await supabase.from('transaction_photos').insert({
-            transaction_id: txn.id, photo_path: path, uploaded_by: staff?.id || null
-          })
-          if (row.error) {
-            proofFailed++; console.error('photo record error:', row.error)
-            await supabase.storage.from('proof-photos').remove([path])
-            continue
-          }
-          proofCount++
-        }
-        if (proofFailed > 0) {
-          alert(`The sale was saved, but ${proofFailed} photo(s) could not be uploaded. Please make sure migration_4.sql was run in Supabase.`)
+      // 3. Link the photos to the sale (if this fails, undo the sale)
+      if (uploadedPaths.length > 0) {
+        const { error: linkErr } = await supabase.from('transaction_photos').insert(
+          uploadedPaths.map(path => ({ transaction_id: txn.id, photo_path: path, uploaded_by: staff?.id || null }))
+        )
+        if (linkErr) {
+          await supabase.from('transactions').delete().eq('id', txn.id)
+          throw new Error(`The photos could not be linked to the sale (${linkErr.message}). Nothing was saved.`)
         }
       }
+      saved = true
 
       const customer = customers.find(c => c.id === customerId)
       setReceipt({
@@ -233,14 +250,18 @@ export default function Cashier() {
         customerPhone: customer?.phone || '',
         cashierName: staff?.full_name || '',
         createdAt: new Date(),
-        proofCount,
+        proofCount: uploadedPaths.length,
       })
       photos.forEach(p => URL.revokeObjectURL(p.url))
       setPhotos([])
       setCart([]); setCustomerId(''); setDiscount(0); setTip(0)
       setIsDeposit(false); setDepositAmount(0)
     } catch (e) {
-      alert('Error saving transaction: ' + e.message)
+      // sale was not saved: remove any photos already uploaded, keep the cart and photos on screen to retry
+      if (!saved && uploadedPaths.length > 0) {
+        try { await supabase.storage.from('proof-photos').remove(uploadedPaths) } catch (_) {}
+      }
+      alert('Sale NOT saved.\n' + e.message)
     }
     setSaving(false)
   }
@@ -334,10 +355,19 @@ export default function Cashier() {
 
           {/* Proof of work photos */}
           <div style={{ marginTop: 14, padding: 12, background: '#f7f3ee', borderRadius: 9 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Proof of Work (photos)</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Proof of Work (photos){proofRequired && <span style={{ color: 'var(--danger)' }}> * required</span>}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
               Photograph the finished nails. Photos only, up to {MAX_PHOTOS} per sale. Date and time are stamped on each photo.
             </div>
+
+            {proofMissing && cart.length > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600, marginBottom: 8 }}>
+                Add at least 1 photo to complete this sale.
+              </div>
+            )}
+            {isDeposit && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Not required for down payments.</div>
+            )}
 
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
               onChange={e => { addPhotos(e.target.files, 'camera'); e.target.value = '' }} />
@@ -363,6 +393,11 @@ export default function Cashier() {
                   <div key={p.url} style={{ position: 'relative' }}>
                     <img src={p.url} alt={`Proof ${idx + 1}`}
                       style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 8, display: 'block', border: '1px solid var(--line)' }} />
+                    {p.stamp && (
+                      <div style={{ position: 'absolute', left: 4, right: 4, bottom: 4, background: 'rgba(0,0,0,0.62)', color: 'white', fontSize: 9, lineHeight: 1.3, padding: '2px 4px', borderRadius: 4 }}>
+                        {p.stamp.map((t, i) => <div key={i}>{t}</div>)}
+                      </div>
+                    )}
                     <button onClick={() => removePhoto(idx)}
                       style={{ position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', color: 'white', fontSize: 13, lineHeight: '24px', cursor: 'pointer' }}>
                       ✕
@@ -388,8 +423,8 @@ export default function Cashier() {
             </>}
           </div>
 
-          <button className="btn btn-accent" style={{ width: '100%', marginTop: 16 }} disabled={cart.length === 0 || saving || photoBusy} onClick={checkout}>
-            {saving ? (photos.length > 0 ? 'Saving & uploading photos…' : 'Processing...') : isDeposit ? 'Record Down Payment' : 'Complete Sale'}
+          <button className="btn btn-accent" style={{ width: '100%', marginTop: 16 }} disabled={cart.length === 0 || saving || photoBusy || proofMissing} onClick={checkout}>
+            {saving ? (photos.length > 0 ? 'Saving & uploading photos…' : 'Processing...') : proofMissing && cart.length > 0 ? '📷 Add proof photo to continue' : isDeposit ? 'Record Down Payment' : 'Complete Sale'}
           </button>
         </div>
       </div>
