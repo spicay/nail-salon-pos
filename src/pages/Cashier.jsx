@@ -72,7 +72,7 @@ export default function Cashier() {
   const [customerId, setCustomerId] = useState('')
   const [discount, setDiscount] = useState(0)
   const [taxRate, setTaxRate] = useState(0)
-  const [tip, setTip] = useState(0)
+  const [tips, setTips] = useState([{ staff_id: '', amount: 0 }])
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const [saving, setSaving] = useState(false)
   const [receipt, setReceipt] = useState(null)
@@ -124,6 +124,17 @@ export default function Cashier() {
     setCart(c => c.filter((_, i) => i !== idx))
   }
 
+  // ----- tips (kept separate from the sale total) -----
+  function updateTip(idx, patch) {
+    setTips(t => t.map((row, i) => i === idx ? { ...row, ...patch } : row))
+  }
+  function addTipRow() {
+    setTips(t => [...t, { staff_id: '', amount: 0 }])
+  }
+  function removeTipRow(idx) {
+    setTips(t => t.filter((_, i) => i !== idx))
+  }
+
   // ----- proof of work photos -----
   async function addPhotos(fileList, source) {
     const files = Array.from(fileList || [])
@@ -163,7 +174,15 @@ export default function Cashier() {
 
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0)
   const taxAmount = (subtotal - discount) * (taxRate / 100)
-  const total = subtotal - discount + taxAmount + Number(tip || 0)
+  const total = subtotal - discount + taxAmount // tips are NOT part of the total
+  // if the order has only one technician, the tip goes to them unless changed
+  const cartTechIds = [...new Set(cart.map(i => i.technician_id).filter(Boolean))]
+  const defaultTipStaff = cartTechIds.length === 1 ? cartTechIds[0] : ''
+  const tipRows = tips
+    .map(t => ({ staff_id: t.staff_id || defaultTipStaff, amount: Number(t.amount) || 0 }))
+    .filter(t => t.amount > 0)
+  const tipTotal = tipRows.reduce((s, t) => s + t.amount, 0)
+  const customerPays = total + tipTotal
 
   // Proof of work is required for every sale
   const proofRequired = true
@@ -173,6 +192,10 @@ export default function Cashier() {
     if (cart.length === 0) return
     if (proofMissing) {
       alert('Proof of work is required.\nPlease add at least 1 photo of the finished nails before completing the sale.')
+      return
+    }
+    if (tipRows.some(t => !t.staff_id)) {
+      alert('Please choose which therapist receives the tip.')
       return
     }
     setSaving(true)
@@ -198,7 +221,7 @@ export default function Cashier() {
         customer_id: customerId || null,
         cashier_id: staff?.id,
         subtotal, discount_amount: discount, tax_amount: taxAmount,
-        tip_amount: tip || 0, total_amount: total,
+        tip_amount: tipTotal, total_amount: total,
         payment_method: paymentMethod,
       }).select().single()
       if (txnError) throw txnError
@@ -216,6 +239,17 @@ export default function Cashier() {
       if (error) {
         await supabase.from('transactions').delete().eq('id', txn.id)
         throw error
+      }
+
+      // Record who received the tip (if this fails, undo the sale)
+      if (tipRows.length > 0) {
+        const { error: tipErr } = await supabase.from('transaction_tips').insert(
+          tipRows.map(t => ({ transaction_id: txn.id, staff_id: t.staff_id, amount: t.amount }))
+        )
+        if (tipErr) {
+          await supabase.from('transactions').delete().eq('id', txn.id)
+          throw new Error(`The tip could not be saved (${tipErr.message}). Nothing was saved. Has migration_5.sql been run in Supabase?`)
+        }
       }
 
       // 3. Link the photos to the sale (if this fails, undo the sale)
@@ -240,10 +274,11 @@ export default function Cashier() {
         cashierName: staff?.full_name || '',
         createdAt: new Date(),
         proofCount: uploadedPaths.length,
+        tipRows: tipRows.map(t => ({ name: staffList.find(s => s.id === t.staff_id)?.full_name || 'Therapist', amount: t.amount })),
       })
       photos.forEach(p => URL.revokeObjectURL(p.url))
       setPhotos([])
-      setCart([]); setCustomerId(''); setDiscount(0); setTip(0)
+      setCart([]); setCustomerId(''); setDiscount(0); setTips([{ staff_id: '', amount: 0 }])
     } catch (e) {
       // sale was not saved: remove any photos already uploaded, keep the cart and photos on screen to retry
       if (!saved && uploadedPaths.length > 0) {
@@ -316,8 +351,25 @@ export default function Cashier() {
           <div style={{ marginTop: 8 }}>
             <label style={{ fontSize: 13, color: 'var(--muted)' }}>Discount (Rp)</label>
             <input type="number" className="input" value={discount} onChange={e => setDiscount(Number(e.target.value) || 0)} style={{ marginBottom: 10, marginTop: 4 }} />
-            <label style={{ fontSize: 13, color: 'var(--muted)' }}>Tip (Rp)</label>
-            <input type="number" className="input" value={tip} onChange={e => setTip(Number(e.target.value) || 0)} style={{ marginBottom: 10, marginTop: 4 }} />
+            <label style={{ fontSize: 13, color: 'var(--muted)' }}>Tip (Rp), kept separate from the total</label>
+            {tips.map((t, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4, marginBottom: 8 }}>
+                <select className="input" style={{ flex: 1.3, padding: '12px 10px' }}
+                  value={t.staff_id || defaultTipStaff}
+                  onChange={e => updateTip(idx, { staff_id: e.target.value })}>
+                  <option value="">Tip goes to…</option>
+                  {staffList.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </select>
+                <input type="number" className="input" style={{ flex: 1 }} value={t.amount}
+                  onChange={e => updateTip(idx, { amount: Number(e.target.value) || 0 })} />
+                {tips.length > 1 && (
+                  <button onClick={() => removeTipRow(idx)} style={{ color: 'var(--danger)', fontSize: 18, padding: '0 4px', cursor: 'pointer' }}>✕</button>
+                )}
+              </div>
+            ))}
+            <button onClick={addTipRow} style={{ fontSize: 12, color: 'var(--rose)', fontWeight: 600, marginBottom: 10, cursor: 'pointer' }}>
+              + Split tip with another therapist
+            </button>
             <label style={{ fontSize: 13, color: 'var(--muted)' }}>Payment Method</label>
             <select className="input" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={{ marginTop: 4 }}>
               <option value="cash">Cash</option>
@@ -386,8 +438,20 @@ export default function Cashier() {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span></div>
             {discount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Discount</span><span style={{ color: 'var(--success)' }}>-Rp {discount.toLocaleString('id-ID')}</span></div>}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Tax ({taxRate}%)</span><span>Rp {taxAmount.toLocaleString('id-ID')}</span></div>
-            {tip > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 4 }}><span>Tip</span><span>Rp {Number(tip).toLocaleString('id-ID')}</span></div>}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700, marginTop: 8 }}><span>Total</span><span>Rp {total.toLocaleString('id-ID')}</span></div>
+            {tipTotal > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--line)' }}>
+                {tipRows.map((t, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)', marginBottom: 2 }}>
+                    <span>Tip for {staffList.find(s => s.id === t.staff_id)?.full_name || '(choose therapist)'}</span>
+                    <span>Rp {t.amount.toLocaleString('id-ID')}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600, marginTop: 4 }}>
+                  <span>Customer pays (total + tip)</span><span>Rp {customerPays.toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <button className="btn btn-accent" style={{ width: '100%', marginTop: 16 }} disabled={cart.length === 0 || saving || photoBusy || proofMissing} onClick={checkout}>
@@ -506,8 +570,11 @@ function ReceiptModal({ receipt, settings, onClose }) {
     L.push('Subtotal: Rp ' + subtotal.toLocaleString('id-ID'))
     if (receipt.discount_amount > 0) L.push('Diskon: -Rp ' + Number(receipt.discount_amount).toLocaleString('id-ID'))
     if (receipt.tax_amount > 0) L.push('Pajak: Rp ' + Number(receipt.tax_amount).toLocaleString('id-ID'))
-    if (receipt.tip_amount > 0) L.push('Tip: Rp ' + Number(receipt.tip_amount).toLocaleString('id-ID'))
     L.push('*TOTAL: Rp ' + Number(receipt.total_amount).toLocaleString('id-ID') + '*')
+    if (receipt.tipRows && receipt.tipRows.length > 0) {
+      receipt.tipRows.forEach(t => L.push('Tip ' + t.name + ': Rp ' + Number(t.amount).toLocaleString('id-ID')))
+      L.push('*Total Dibayar: Rp ' + (Number(receipt.total_amount) + Number(receipt.tip_amount || 0)).toLocaleString('id-ID') + '*')
+    }
     L.push(''); L.push('Bayar: ' + receipt.payment_method.toUpperCase())
     if (settings?.receipt_footer) { L.push(''); L.push(settings.receipt_footer) }
     return L.join('\n')
@@ -552,10 +619,20 @@ function ReceiptModal({ receipt, settings, onClose }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>Subtotal</span><span>Rp {subtotal.toLocaleString('id-ID')}</span></div>
       {receipt.discount_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>Diskon</span><span>-Rp {Number(receipt.discount_amount).toLocaleString('id-ID')}</span></div>}
       {receipt.tax_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>Pajak</span><span>Rp {Number(receipt.tax_amount).toLocaleString('id-ID')}</span></div>}
-      {receipt.tip_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}><span>Tip</span><span>Rp {Number(receipt.tip_amount).toLocaleString('id-ID')}</span></div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13, marginTop: 4, paddingTop: 4, borderTop: '1px solid #000' }}>
         <span>TOTAL</span><span>Rp {Number(receipt.total_amount).toLocaleString('id-ID')}</span>
       </div>
+      {receipt.tipRows && receipt.tipRows.length > 0 && <>
+        <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />
+        {receipt.tipRows.map((t, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
+            <span>Tip {t.name}</span><span>Rp {Number(t.amount).toLocaleString('id-ID')}</span>
+          </div>
+        ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 11, marginTop: 2 }}>
+          <span>Total Dibayar</span><span>Rp {(Number(receipt.total_amount) + Number(receipt.tip_amount || 0)).toLocaleString('id-ID')}</span>
+        </div>
+      </>}
       <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />
       <div style={{ textAlign: 'center', fontSize: 10 }}>
         <div>Bayar: {receipt.payment_method.toUpperCase()}</div>
